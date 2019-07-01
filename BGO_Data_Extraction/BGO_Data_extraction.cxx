@@ -10,8 +10,11 @@
 #include <sstream>
 #include <stdint.h>
 #include <cstring>
+#include <cstdio>
+#include <cstddef>
 #include <dirent.h>//class used to manipulate and traverse directories
 #include <stdio.h>
+#include <math.h>
 #include <mutex>
 #include <vector>
 
@@ -42,6 +45,26 @@
 #include "functions_new.h"
 
 extern int alphasort();
+
+int decimal_to_binary (int decimal)
+{
+  static int arr[16];
+  int x=0;
+  int i=0,r;
+  while(decimal!=0)
+  {
+   r = decimal%2;
+   arr[i] = r;
+   decimal /= 2;
+   i++;
+  }
+  for (int l=0;l<=7;l++) {
+  arr[l]=arr[l]*pow(2,16+l);
+  x=x+arr[l];
+  }
+   
+    return x;
+}
 
 int file_select(const struct dirent *entry)//selection of files to be included in the return of the folder scan
 {//ignore all files with the following features
@@ -148,10 +171,18 @@ int main (int argc,char ** argv)
 
 
   //Variables for signal treatment (crossing high threshold, baseline, events removal)
-
+  double baseline[4], mean_1[4], mean_2[4], integral[4], sum_1[4], sum_2[4]; // mean_1 and mean_2 are used to verify if the variation of values in the baseline calculation is low. 
+  for (int fill_bsl=0;fill_bsl<4;fill_bsl++){
+  baseline[fill_bsl]=0.;
+  mean_1[fill_bsl]=0.;
+  mean_2[fill_bsl]=0.;
+  integral[fill_bsl]=0.;
+  }
+  int PM_1_binary =0, PM_2_binary = 0, PM_3_binary = 0, PM_4_binary = 0;
 
   //Creation file for writing raw data
-  TString path_raw = "/media/oreste/DATA/BGO/";
+  TString path_raw = "/media/oreste/DATA/BGO/Data_Extraction/";
+  int blockNumber;
 
   //Creating string to check that the selected files refer to the present run - all other data files are ignored
   std::stringstream  s;
@@ -183,6 +214,8 @@ int main (int argc,char ** argv)
 
 
 if(cnt>0){
+    std::ofstream integral_calculated_data(path_raw + Form("Complete_Data_RUN_%i.txt", runN));
+    std::ofstream charge_calculation_data(path_raw + Form("Bit_charge_calculation_content_RUN_%i.txt", runN));
     std::cout<<"We collected "<<cnt<<" files for run "<<runN<<std::endl;
     std::cout<<"How many files you want to analyse ? (Type here and return (-1 for all))"<<std::endl;
     std::cin>>file_to_an;
@@ -235,8 +268,7 @@ if(cnt>0){
 	          break;
           }
           int N_PM = 0;
-          for(N_PM = 0; N_PM<4; N_PM++){
-          std::ofstream file_raw_data(path_raw + Form("Raw_Data_RUN_%i_%i_%i.txt", runN, fileAn, N_event_valid/4+1));
+          for(N_PM = 0; N_PM<event_id.hit_in_trig; N_PM++){
           fp.read((char *)data_main_structure, sizeof(data_main_structure));//reading the data main part
 
           unpack_dataMain((unsigned char *)data_main_structure, data_struct);
@@ -255,6 +287,8 @@ if(cnt>0){
 		 for(int w = 0; w<data_struct.modules_num; w++){//reading the data from each involved block
 	         fp.read((char *)hit_structure_mode1, sizeof(hit_structure_mode1));
 	         unpack_data((unsigned char *)hit_structure_mode1, hit_block_rec);
+                 blockNumber=trunc((hit_block_rec.N_PM_rec/4)+1);
+                 //std::ofstream file_raw_data(path_raw + Form("Raw_Data_RUN_%i_block_%i_trigg_%i.txt", runN, blockNumber, event_id.trigger_number));  //--> used for debugg
                  std::cout<<hit_block_rec.N_PM_rec<<'\t'<<hit_block_rec.hit_time_rec<<'\t'<<hit_block_rec.Nb_samples_rec<<std::endl;
                    for (int sple = 0; sple<hit_block_rec.Nb_samples_rec; sple++){
                     fp.read((char *)sample_structure, sizeof(sample_structure));
@@ -265,24 +299,27 @@ if(cnt>0){
 //--------------------------------------------------------------------------------------------//
                     hist_sample[hit_block_rec.N_PM_rec%4][sple] = sample_rec.sample;
                     //sample-> Fill(sample_rec.sample);
-                     if (sample_rec.sample>4096) { // Verification of saturation
+                     if (sample_rec.sample>=4095) { // Verification of saturation
                      invalid_sple_val = invalid_sple_val+1;
                      }
-                   } // end loop for sple
+                   
 
-                   if (hit_block_rec.N_PM_rec>=0){
-                   invalid_sample[hit_block_rec.N_PM_rec%4]=invalid_sple_val;
-                   std::cout<<"invalid_sample :"<<'\t';
-                   for (int test=0; test<4; test++){std::cout<< invalid_sample[test]<<'\t';
-                   }
+                     if (hit_block_rec.N_PM_rec>=0){
+                     invalid_sample[hit_block_rec.N_PM_rec%4]=invalid_sple_val;
+                   } 
+                   else{std::cout<<"None PM hit"<<std::endl;}
+
+                   } // end loop for sple
+                     std::cout<<"invalid_sample :"<<'\t';
+                     for (int invalid=0; invalid<4; invalid++){std::cout<< invalid_sample[invalid]<<'\t';
+                     }
                    std::cout<<""<<std::endl;
                    invalid_sple_val = 0.;
-                   }
-                   else{std::cout<<"None PM hit"<<std::endl;}
+                   
 
                PM_signal_valid_counter=0;
                for (int verification=0; verification<4; verification++){
-                 if (invalid_sample[verification]<=1024) {
+                 if (invalid_sample[verification]<=40) {
                  PM_signal_valid_counter=PM_signal_valid_counter+1;
                  }
                }
@@ -292,6 +329,77 @@ if(cnt>0){
               sum_sample=sum_sample+hist_sample[sum_col][sum_line];
                 }
               }
+                        if(N_event_valid%4==0 && PM_signal_valid_counter==4) {
+                       /* for (int sample_write=0 ; sample_write<1024 ; sample_write++) {
+                        file_raw_data<<hist_sample[0][sample_write]<<'\t'<<hist_sample[1][sample_write]<<'\t'<<hist_sample[2][sample_write]<<'\t'<<hist_sample[3][sample_write]<<std::endl;
+                        }*/
+
+//--------------------------------------------------------------------------------------------//
+//---------------------------------***Integral calculation***---------------------------------//
+//--------------------------------------------------------------------------------------------//
+                            //baseline calculation
+			    for(int baseline_calc=0; baseline_calc<4; baseline_calc++){
+			     for (int i=2;i<25;i++){ // the two first samples are dedicated to charge calculation and baseline calculation in data format
+			     sum_1[baseline_calc]= sum_1[baseline_calc] + hist_sample[baseline_calc][i];
+			     }
+			     mean_1[baseline_calc]=sum_1[baseline_calc]/23;
+			     for (int ii=25;ii<50;ii++){
+			     sum_2[baseline_calc]= sum_2[baseline_calc] + hist_sample[baseline_calc][ii];
+			     }
+			     mean_2[baseline_calc]=sum_2[baseline_calc]/25;
+			     if (mean_1[baseline_calc]-mean_2[baseline_calc]<50 || mean_1[baseline_calc]-mean_2[baseline_calc]<-50){
+			     baseline[baseline_calc]=(mean_1[baseline_calc]+mean_2[baseline_calc])/2;}
+			     else {baseline[baseline_calc]=mean_1[baseline_calc];}
+			    }
+                           std::cout<<"Baseline : "<<std::endl;
+                           for (int test=0; test<4; test++){std::cout<<baseline[test]<<'\t';}
+                           std::cout<<""<<std::endl;
+                           //integral calculation
+                            for(int integ_calc=0; integ_calc<4; integ_calc++){
+			     for (int l=2;l<1023;l++){
+                               if (hist_sample[integ_calc][l] - baseline[integ_calc] < 0){
+                               integral[integ_calc]=integral[integ_calc]+0;
+                               }
+                               else {integral[integ_calc]=integral[integ_calc]+hist_sample[integ_calc][l]- baseline[integ_calc];}
+                             }
+                            }
+                            /*for(int charge_size_adjustement=0; charge_size_adjustement<4; charge_size_adjustement++){
+                             integral[charge_size_adjustement] = integral[charge_size_adjustement]/330;
+                            }*/
+                             std::cout<<"Integrale : "<<std::endl;
+                             for (int test1=0; test1<4; test1++){std::cout<<integral[test1]<<'\t';}
+                             std::cout<<""<<std::endl;
+                           //writting in output file
+                           for(int fill_complete_file=0; fill_complete_file<data_struct.modules_num; fill_complete_file++){
+			    integral_calculated_data<<integral[0]<<'\t'<<integral[1]<<'\t'<<integral[2]<<'\t'<<integral[3]<<std::endl;
+
+                           //Charge calculation verification 
+                            PM_1_binary = decimal_to_binary(hist_sample[0][0])+hist_sample[0][1];
+                            PM_2_binary = decimal_to_binary(hist_sample[1][0])+hist_sample[1][1];
+                            PM_3_binary = decimal_to_binary(hist_sample[2][0])+hist_sample[2][1];
+                            PM_4_binary = decimal_to_binary(hist_sample[3][0])+hist_sample[3][1];
+                            
+
+			    charge_calculation_data<<"Charge_PM1 : "<<PM_1_binary<<'\t'<<"Charge_PM2 : "<<PM_2_binary<<'\t'<<"Charge_PM3 : "<<PM_3_binary<<'\t'<<"Charge_PM4 : "<<PM_4_binary<<std::endl;
+//"PM1_Bit1 : "<<hist_sample[0][0]<<'\t'<<"PM2_Bit1 : "<<hist_sample[1][0]<<'\t'<<"PM3_Bit1 : "<<hist_sample[2][0]<<'\t'<<"PM4_Bit1 : "<<hist_sample[3][0]<<'\n'<<"PM1_Bit2 : "<<hist_sample[0][1]<<'\t'<<"PM2_Bit2 : "<<hist_sample[1][1]<<'\t'<<"PM3_Bit2 : "<<hist_sample[2][1]<<'\t'<<"PM4_Bit2 : "<<hist_sample[3][1]<<std::endl;
+                           }
+
+                        for (int fill_col=0;fill_col<4;fill_col++){ // Table content removal
+                          integral[fill_col]=0.;
+                          sum_1[fill_col]=0.;
+                          sum_2[fill_col]=0.;
+                          mean_1[fill_col]=0.;
+                          mean_2[fill_col]=0.;
+                          baseline[fill_col]=0.;
+                          for (int fill_line=0; fill_line<1024; fill_line++){
+                          hist_sample[fill_col][fill_line]=0.;
+                          }
+                        }
+                           
+                       } //end if N_event_valid
+
+
+
 
             }// end loop fo w
             bzero(hit_structure_mode1, 7);
@@ -299,26 +407,13 @@ if(cnt>0){
             else {std::cout<<"PROBLEM MODE NUMBER"<<std::endl;}
           } // end module num
         } // end if data_beg_id
-        else {printf("PROBLEM IN READING DATA HEADER : beg_id = x%x\n", data_struct.data_beg_id);}
-        if(N_event_valid%4==0) {
-                        for (int sample_write=0 ; sample_write<1024 ; sample_write++) {
-                        file_raw_data<<hist_sample[0][sample_write]<<'\t'<<hist_sample[1][sample_write]<<'\t'<<hist_sample[2][sample_write]<<'\t'<<hist_sample[3][sample_write]<<std::endl;
-                        }
-
-                        for (int fill_col=0;fill_col<4;fill_col++){ // Table content removal
-                          for (int fill_line=0; fill_line<1024; fill_line++){
-                          hist_sample[fill_col][fill_line]=0.;
-                          }
-                        }
-                      } //end if sum_sample
-                      else {continue;}
-                      for (int clear_invalid_sample=0; clear_invalid_sample<4; clear_invalid_sample++){
-                      invalid_sample[clear_invalid_sample]=0;
-                      }
+        else {printf("PROBLEM IN READING DATA HEADER : beg_id = x%x\n", data_struct.data_beg_id);}        
        } // end for N_PM
+      for (int clear_invalid_sample=0; clear_invalid_sample<4; clear_invalid_sample++){
+         invalid_sample[clear_invalid_sample]=0;
+         }
       } // end Nevnt
       } //end if fp
-    TFile outroot(Form("/media/oreste/DATA/BGO/Output_Analysis/run%d_%i.root", runN, fileAn), "RECREATE");
     } // end if fileAn
 
 } //end if cnt
