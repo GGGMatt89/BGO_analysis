@@ -339,14 +339,14 @@ if(cnt>0){
 //--------------------------------------------------------------------------------------------//
                             //baseline calculation
 			    for(int baseline_calc=0; baseline_calc<4; baseline_calc++){
-			     for (int i=2;i<25;i++){ // the two first samples are dedicated to charge calculation and baseline calculation in data format
+			     for (int i=2;i<18;i++){ // the two first samples are dedicated to charge calculation and baseline calculation in data format
 			     sum_1[baseline_calc]= sum_1[baseline_calc] + hist_sample[baseline_calc][i];
 			     }
-			     mean_1[baseline_calc]=sum_1[baseline_calc]/23;
-			     for (int ii=25;ii<50;ii++){
+			     mean_1[baseline_calc]=sum_1[baseline_calc]/16;
+			     for (int ii=18;ii<33;ii++){
 			     sum_2[baseline_calc]= sum_2[baseline_calc] + hist_sample[baseline_calc][ii];
 			     }
-			     mean_2[baseline_calc]=sum_2[baseline_calc]/25;
+			     mean_2[baseline_calc]=sum_2[baseline_calc]/16;
 			     if (mean_1[baseline_calc]-mean_2[baseline_calc]<50 || mean_1[baseline_calc]-mean_2[baseline_calc]<-50){
 			     baseline[baseline_calc]=(mean_1[baseline_calc]+mean_2[baseline_calc])/2;}
 			     else {baseline[baseline_calc]=mean_1[baseline_calc];}
@@ -362,10 +362,11 @@ if(cnt>0){
                                }
                                else {integral[integ_calc]=integral[integ_calc]+hist_sample[integ_calc][l]- baseline[integ_calc];}
                              }
+                           
                             }
-                            /*for(int charge_size_adjustement=0; charge_size_adjustement<4; charge_size_adjustement++){
-                             integral[charge_size_adjustement] = integral[charge_size_adjustement]/330;
-                            }*/
+                            for(int charge_size_adjustement=0; charge_size_adjustement<4; charge_size_adjustement++){
+                             integral[charge_size_adjustement] = integral[charge_size_adjustement]/379;
+                            }
                              std::cout<<"Integrale : "<<std::endl;
                              for (int test1=0; test1<4; test1++){std::cout<<integral[test1]<<'\t';}
                              std::cout<<""<<std::endl;
